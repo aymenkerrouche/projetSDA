@@ -1,0 +1,58 @@
+from annoy import AnnoyIndex
+import csv
+
+# Étape 1 : Charger les données
+def load_data(file_path):
+    data = {}
+    all_movies = set()
+    with open(file_path, mode="r") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            user_id = row["idUtilisateur"]
+            movies = set(map(int, row["idFilms"].split(",")))
+            data[user_id] = movies
+            all_movies.update(movies)
+    return data, sorted(all_movies)
+
+# Étape 2 : Construire l'index Annoy
+def build_annoy_index(data, all_movies):
+    index = AnnoyIndex(len(all_movies), metric='euclidean')  # Choisir le bon metric
+    user_map = {}
+    for i, (user_id, movies) in enumerate(data.items()):
+        vector = [1 if movie in movies else 0 for movie in all_movies]
+        index.add_item(i, vector)
+        user_map[i] = user_id
+    index.build(10)  # 10 arbres pour optimiser
+    return index, user_map
+
+# Étape 3 : Générer des recommandations
+def recommend_annoy(user_id, index, user_map, data, all_movies, k=10):
+    user_idx = list(user_map.values()).index(user_id)
+    neighbors = index.get_nns_by_item(user_idx, k+1)[1:]  # Exclure soi-même
+    user_movies = data[user_id]
+    recommended_movies = set()
+    for neighbor_idx in neighbors:
+        neighbor_id = user_map[neighbor_idx]
+        neighbor_movies = data[neighbor_id]
+        recommended_movies.update(neighbor_movies - user_movies)
+    return list(recommended_movies)
+
+# Main
+if __name__ == "__main__":
+    input_file = "films.csv"
+    output_file = "films_with_recommendations.csv"
+    data, all_movies = load_data(input_file)
+    index, user_map = build_annoy_index(data, all_movies)
+    
+    # Sauvegarder les recommandations
+    with open(output_file, mode="w", newline="") as file:
+        fieldnames = ["idUtilisateur", "idFilms", "idRecoms"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for user_id, movies in data.items():
+            recommendations = recommend_annoy(user_id, index, user_map, data, all_movies, k=10)
+            writer.writerow({
+                "idUtilisateur": user_id,
+                "idFilms": ",".join(map(str, movies)),
+                "idRecoms": ",".join(map(str, recommendations))
+            })
